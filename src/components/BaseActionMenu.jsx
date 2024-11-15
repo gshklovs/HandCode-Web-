@@ -81,7 +81,15 @@ const BaseActionMenu = ({ suggestions = [], position, onSelect, onClickOutside, 
         return (
           <div
             key={index}
-            onClick={() => onSelect(suggestion.text)}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onSelect({
+                text: suggestion.text || suggestion.title,
+                preview: suggestion.preview || suggestion.description,
+                ...suggestion
+              });
+            }}
             onMouseEnter={() => setHoveredIndex(index)}
             onMouseLeave={() => setHoveredIndex(null)}
             style={{

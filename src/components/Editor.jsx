@@ -70,57 +70,83 @@ function CodeEditor() {
     const decorations = [];
     const monaco = monacoRef.current;
 
+    // Parse the diff to get line changes
+    const diff = createDiffSummary(oldCode, newCode);
+    const diffLines = diff.split('\n');
+    const lineMap = new Map();
+
+    // Build a map of line changes
+    diffLines.forEach(line => {
+      if (line.startsWith('+') || line.startsWith('-')) {
+        const [marker, lineNum] = line.match(/^[+-](\d+):/);
+        lineMap.set(parseInt(lineNum), marker === '+' ? 'add' : 'remove');
+      }
+    });
+
+    // Apply decorations based on the diff
+    let lineOffset = 0;
     for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
-      const oldLine = oldLines[i];
-      const newLine = newLines[i];
+      const currentLineNumber = i + 1;
+      const changeType = lineMap.get(currentLineNumber);
 
-      if (oldLine !== newLine) {
-        const lineNumber = i + 1;
-        const range = new monaco.Range(lineNumber, 1, lineNumber, 1);
-
-        if (oldLine !== undefined) {
-          // Add removed line decoration
-          decorations.push({
-            range,
-            options: {
-              isWholeLine: true,
-              className: 'removed-line',
-              glyphMarginClassName: 'removed-line-glyph',
-              linesDecorationsClassName: 'removed-line-decoration',
-              minimap: { color: '#ff000055', position: 2 },
-              overviewRuler: { color: '#ff0000', position: 4 },
-              zIndex: 1,
+      if (changeType === 'remove') {
+        // For removed lines, show them as phantom content
+        const range = new monaco.Range(currentLineNumber + lineOffset, 1, currentLineNumber + lineOffset, 1);
+        decorations.push({
+          range,
+          options: {
+            isWholeLine: true,
+            className: 'removed-line',
+            glyphMarginClassName: 'removed-line-glyph',
+            linesDecorationsClassName: 'removed-line-decoration',
+            minimap: { color: '#ff000055', position: 2 },
+            overviewRuler: { color: '#ff0000', position: 4 }
+          }
+        });
+        decorations.push({
+          range,
+          options: {
+            after: {
+              content: `  ${oldLines[i] || ''}`,
+              inlineClassName: 'removed-line-content'
             }
-          });
-          // Add the old content as a line decoration
-          decorations.push({
-            range,
-            options: {
-              after: {
-                content: `  // ${oldLine}`,
-                inlineClassName: 'removed-line-content'
-              }
-            }
-          });
-        }
-        if (newLine !== undefined) {
-          // Add added line decoration
-          decorations.push({
-            range,
-            options: {
-              isWholeLine: true,
-              className: 'added-line',
-              glyphMarginClassName: 'added-line-glyph',
-              linesDecorationsClassName: 'added-line-decoration',
-              minimap: { color: '#00ff0055', position: 2 },
-              overviewRuler: { color: '#00ff00', position: 4 }
-            }
-          });
-        }
+          }
+        });
+        lineOffset--; // Adjust for removed line
+      } else if (changeType === 'add') {
+        // For added lines, highlight the actual content
+        const range = new monaco.Range(currentLineNumber + lineOffset, 1, currentLineNumber + lineOffset, 1);
+        const lineRange = new monaco.Range(
+          currentLineNumber + lineOffset,
+          1,
+          currentLineNumber + lineOffset,
+          newLines[i].length + 1
+        );
+        
+        // Add whole line background
+        decorations.push({
+          range,
+          options: {
+            isWholeLine: true,
+            className: 'added-line',
+            glyphMarginClassName: 'added-line-glyph',
+            linesDecorationsClassName: 'added-line-decoration',
+            minimap: { color: '#2cbb3b55', position: 2 },
+            overviewRuler: { color: '#2cbb3b', position: 4 }
+          }
+        });
+        
+        // Add text color for the actual content
+        decorations.push({
+          range: lineRange,
+          options: {
+            inlineClassName: 'added-line-content'
+          }
+        });
       }
     }
 
-    // Clear previous decorations
+    // Clear previous decorations and apply new ones
     decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, decorations);
   }, []);
 
@@ -128,20 +154,62 @@ function CodeEditor() {
     console.log('Editor mounted');
     editorRef.current = editor;
     monacoRef.current = monaco;
-    
-    // Add CSS for decorations
+
+    // Set editor options
+    editor.updateOptions({
+      glyphMargin: true,
+      lineDecorationsWidth: 5,
+      renderLineHighlight: 'all',
+      lineNumbers: 'on',
+      fontSize: 14,
+      theme: 'vs-dark'
+    });
+
+    // Add CSS for decorations with improved visibility
     const style = document.createElement('style');
     style.textContent = `
-      .removed-line { background: #ff000015; }
-      .removed-line-glyph { background: #ff0000; width: 4px !important; margin-left: 3px; }
-      .removed-line-decoration { background: #ff0000; width: 4px !important; margin-left: 3px; }
-      .removed-line-content { color: #ff0000; font-style: italic; }
-      .added-line { background: #00ff0015; }
-      .added-line-glyph { background: #00ff00; width: 4px !important; margin-left: 3px; }
-      .added-line-decoration { background: #00ff00; width: 4px !important; margin-left: 3px; }
+      .removed-line { 
+        background: rgba(255, 0, 0, 0.1);
+        text-decoration: line-through;
+        opacity: 0.7;
+      }
+      .removed-line-glyph {
+        background: #ff0000;
+        width: 4px !important;
+        margin-left: 3px;
+      }
+      .removed-line-decoration {
+        background: #ff0000;
+        width: 4px !important;
+        margin-left: 3px;
+      }
+      .removed-line-content {
+        color: #ff0000 !important;
+        font-style: italic;
+        margin-left: 4px;
+        opacity: 0.8;
+      }
+      .added-line {
+        background: rgba(0, 255, 0, 0.1);
+      }
+      .added-line-glyph {
+        background: #2cbb3b;
+        width: 4px !important;
+        margin-left: 3px;
+      }
+      .added-line-decoration {
+        background: #2cbb3b;
+        width: 4px !important;
+        margin-left: 3px;
+      }
+      .monaco-editor .mtk1.added-line-content,
+      .monaco-editor .added-line .mtk1 {
+        color: #2cbb3b !important;
+        font-weight: 500;
+      }
     `;
     document.head.appendChild(style);
-    
+
     editor.onContextMenu(async (e) => {
       e.event.preventDefault();
       const position = e.target.position;
@@ -179,51 +247,96 @@ function CodeEditor() {
     }
   };
 
-  const handleActionSelect = async (suggestion) => {
-    console.log('Action selected:', suggestion);
-    if (!editorRef.current) {
-      console.error('No editor reference found');
-      return;
-    }
+  const handleActionSelect = useCallback(async (suggestion) => {
+    if (!editorRef.current || generating) return;
 
     const model = editorRef.current.getModel();
-    if (!model) {
-      console.error('No editor model found');
-      return;
-    }
-
-    const currentCode = model.getValue();
-    setSelectedAction(suggestion.text);
-    setPreviousCode(currentCode);
-    setGenerating(true);
-    setSuggestions([]);
-    setMenuPosition(null);
+    if (!model) return;
 
     try {
-      console.log('Generating new code...');
-      const newCode = await generateCode(currentCode, suggestion.text, suggestion.preview);
+      setGenerating(true);
+      setSuggestions([]); // Clear suggestions immediately
+      setMenuPosition(null); // Hide menu immediately
       
+      const currentCode = model.getValue();
+      setPreviousCode(currentCode);
+
+      // Ensure we have the correct suggestion structure
+      const title = suggestion.text || suggestion.title || '';
+      const preview = suggestion.preview || suggestion.description || '';
+      
+      if (!title || !preview) {
+        console.error('Invalid suggestion format:', suggestion);
+        throw new Error('Invalid suggestion format');
+      }
+
+      setSelectedAction(title);
+
+      console.log('Generating new code...', { title, preview });
+      const newCode = await generateCode(currentCode, title, preview);
+      
+      // Safety check - user might have navigated away or component unmounted
+      if (!editorRef.current) {
+        console.warn('Editor reference lost during code generation');
+        return;
+      }
+
+      // Get fresh model reference
+      const updatedModel = editorRef.current.getModel();
+      if (!updatedModel) {
+        console.warn('Editor model not available after code generation');
+        return;
+      }
+
       const diff = createDiffSummary(currentCode, newCode);
       console.log('Code changes:', '\n' + diff);
       
       if (diff.trim() === '') {
         console.warn('No changes detected in generated code');
+        setGenerating(false);
+        setSelectedAction(null);
         return;
       }
 
-      model.setValue(newCode);
+      // Use edit operations for better undo/redo support
+      const editOperation = {
+        range: updatedModel.getFullModelRange(),
+        text: newCode,
+        forceMoveMarkers: true
+      };
+
+      updatedModel.pushEditOperations([], [editOperation], () => null);
       setCode(newCode);
-      // Apply diff decorations after setting new code
-      applyDiffDecorations(currentCode, newCode);
-      console.log('Editor model updated');
+      
+      // Ensure we still have editor reference before applying decorations
+      if (editorRef.current) {
+        applyDiffDecorations(currentCode, newCode);
+      }
+      
+      console.log('Editor model updated successfully');
     } catch (error) {
-      console.error('Error generating code:', error);
-      model.setValue(currentCode);
-      setCode(currentCode);
+      console.error('Error in handleActionSelect:', error);
+      
+      // Only attempt to restore if we still have editor access
+      if (editorRef.current) {
+        const model = editorRef.current.getModel();
+        if (model) {
+          const currentCode = model.getValue();
+          const restoreOperation = {
+            range: model.getFullModelRange(),
+            text: currentCode,
+            forceMoveMarkers: true
+          };
+          
+          model.pushEditOperations([], [restoreOperation], () => null);
+          setCode(currentCode);
+        }
+      }
     } finally {
       setGenerating(false);
+      setSelectedAction(null);
     }
-  };
+  }, [generating, applyDiffDecorations]);
 
   const handleUndo = () => {
     console.log('Undoing changes...');
