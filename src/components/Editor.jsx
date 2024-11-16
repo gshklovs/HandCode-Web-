@@ -78,8 +78,12 @@ function CodeEditor() {
     // Build a map of line changes
     diffLines.forEach(line => {
       if (line.startsWith('+') || line.startsWith('-')) {
-        const [marker, lineNum] = line.match(/^[+-](\d+):/);
-        lineMap.set(parseInt(lineNum), marker === '+' ? 'add' : 'remove');
+        const matches = line.match(/^([+-])(\d+):/);
+        if (matches) {
+          const [_, marker, lineNum] = matches;
+          console.log("found change:", marker, lineNum);
+          lineMap.set(parseInt(lineNum), marker === '+' ? 'add' : 'remove');
+        }
       }
     });
 

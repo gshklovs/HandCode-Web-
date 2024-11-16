@@ -1,4 +1,4 @@
-// Simple line-by-line diff implementation
+// Patience diff implementation
 function createLineDiff(oldLines, newLines) {
   const changes = [];
   let lineNumber = 1;
@@ -13,38 +13,50 @@ function createLineDiff(oldLines, newLines) {
     }
   };
 
-  let i = 0;
-  let j = 0;
-  const context = 3; // Number of context lines
-
-  while (i < oldLines.length || j < newLines.length) {
-    if (i < oldLines.length && j < newLines.length && oldLines[i] === newLines[j]) {
-      // Lines are the same - add as context if near changes
-      const prevLineHasChange = changes.length > 0 && changes[changes.length - 1].match(/^[+-]/);
-      const nextLineHasChange = (i + 1 < oldLines.length && j + 1 < newLines.length && 
-                                oldLines[i + 1] !== newLines[j + 1]);
-      
-      if (prevLineHasChange || nextLineHasChange || changes.length === 0) {
-        changes.push(` ${lineNumber}:     ${oldLines[i]}`);
-      }
-      i++;
-      j++;
-      lineNumber++;
-    } else {
-      // Lines are different
-      if (i < oldLines.length) {
-        // Line was removed
-        changes.push(`-${lineNumber}:     ${oldLines[i]}`);
-        i++;
-      }
-      if (j < newLines.length) {
-        // Line was added
-        changes.push(`+${lineNumber}:     ${newLines[j]}`);
-        j++;
-        lineNumber++;
+  // Find unique common subsequences
+  const findLCS = (start1, end1, start2, end2) => {
+    const uniqueLines = new Map();
+    for (let i = start1; i <= end1; i++) {
+      uniqueLines.set(oldLines[i], i);
+    }
+    const matches = [];
+    for (let j = start2; j <= end2; j++) {
+      if (uniqueLines.has(newLines[j])) {
+        matches.push([uniqueLines.get(newLines[j]), j]);
       }
     }
-  }
+    matches.sort((a, b) => a[0] - b[0]);
+    return matches;
+  };
+
+  // Recursively diff the lines
+  const diff = (start1, end1, start2, end2) => {
+    const lcs = findLCS(start1, end1, start2, end2);
+    if (lcs.length === 0) {
+      // No common subsequence, all lines are different
+      for (let i = start1; i <= end1; i++) {
+        changes.push(`-${lineNumber}:     ${oldLines[i]}`);
+      }
+      for (let j = start2; j <= end2; j++) {
+        changes.push(`+${lineNumber}:     ${newLines[j]}`);
+        lineNumber++;
+      }
+    } else {
+      // Recursively diff the parts before, between, and after the LCS
+      let prev1 = start1 - 1;
+      let prev2 = start2 - 1;
+      for (const [i, j] of lcs) {
+        diff(prev1 + 1, i - 1, prev2 + 1, j - 1);
+        changes.push(` ${lineNumber}:     ${oldLines[i]}`);
+        lineNumber++;
+        prev1 = i;
+        prev2 = j;
+      }
+      diff(prev1 + 1, end1, prev2 + 1, end2);
+    }
+  };
+
+  diff(0, oldLines.length - 1, 0, newLines.length - 1);
 
   return changes.join('\n');
 }
