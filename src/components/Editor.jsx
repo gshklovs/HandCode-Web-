@@ -172,6 +172,11 @@ function CodeEditor() {
     // Add CSS for decorations with improved visibility
     const style = document.createElement('style');
     style.textContent = `
+      .focused-line { 
+        background: rgba(0, 155, 255, 0.1);
+        textDecoration: 'underline',
+        opacity: 0.7
+      }
       .removed-line { 
         background: rgba(255, 0, 0, 0.1);
         text-decoration: line-through;
@@ -221,6 +226,18 @@ function CodeEditor() {
       if (position) {
         const editorCoords = editor.getTargetAtClientPoint(e.event.posx, e.event.posy);
         if (!editorCoords) return;
+
+        // Update decorations when clicking on a new line
+        if (clickedLine !== position.lineNumber) {
+          const newDecorations = [{
+            range: new monaco.Range(position.lineNumber, 1, position.lineNumber, 1),
+            options: {
+              isWholeLine: true,
+              className: 'focused-line'
+            }
+          }];
+          decorationsRef.current = editor.deltaDecorations(decorationsRef.current, newDecorations);
+        }
 
         setClickedLine(position.lineNumber);
         setLoadingPosition({ x: e.event.posx, y: e.event.posy });
@@ -395,6 +412,7 @@ function CodeEditor() {
         </div>
         {previousCode && (
           <button
+            className="text-center mx-auto"
             onClick={handleUndo}
             style={{
               backgroundColor: '#2d2d2d',
