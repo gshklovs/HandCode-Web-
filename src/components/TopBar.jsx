@@ -3,6 +3,17 @@ import React from 'react';
 const TopBar = ({ error, onClear }) => {
   if (!error) return null;
 
+  // Try to parse error details if they're stringified JSON
+  let errorDetails = null;
+  if (typeof error === 'object' && error.details) {
+    try {
+      const details = error.details.error || error.details;
+      errorDetails = details.message || JSON.stringify(details);
+    } catch (e) {
+      errorDetails = error.details;
+    }
+  }
+
   return (
     <div className="fixed top-0 left-0 right-0 p-2 bg-gray-900 border-b border-gray-700 z-[2000] flex items-center justify-between">
       <div className="flex items-center space-x-2">
@@ -10,8 +21,8 @@ const TopBar = ({ error, onClear }) => {
           Error
         </div>
         <span className="text-red-400 text-sm">{error.message}</span>
-        {error.details && (
-          <span className="text-white text-sm opacity-80">: {error.details}</span>
+        {errorDetails && (
+          <span className="text-white text-sm opacity-80">: {errorDetails}</span>
         )}
       </div>
       <button

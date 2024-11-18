@@ -53,3 +53,10 @@ yarn-error.log*
 .vscode/
 *.swp
 *.swo
+
+# Environment files
+.env
+.env.*
+.env.local
+.env.development
+.env.production

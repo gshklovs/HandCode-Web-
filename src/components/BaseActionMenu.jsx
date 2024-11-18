@@ -74,7 +74,7 @@ const BaseActionMenu = ({ suggestions = [], position, onSelect, onClickOutside, 
     onSelect(suggestionData);
   };
 
-  if (!position || !suggestions.length) return null;
+  if (!position || !suggestions?.length) return null;
 
   return (
     <div

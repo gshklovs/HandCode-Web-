@@ -49,7 +49,7 @@ console.log(counter.getCurrentValue()); // 7
 console.log(counter.getHistory());
 `;
 
-function CodeEditor() {
+function CodeEditor({ onError }) {
   const [code, setCode] = useState(() => {
     const savedCode = localStorage.getItem('editorCode');
     return savedCode || initialCode;
@@ -159,6 +159,74 @@ function CodeEditor() {
     decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, decorations);
   }, []);
 
+  const handleContextMenu = async (e) => {
+    e.event.preventDefault();
+    if (!editorRef.current) return;
+
+    const model = editorRef.current.getModel();
+    if (!model) return;
+
+    const position = e.target.position;
+    if (!position) return;
+
+    const lineContent = model.getLineContent(position.lineNumber).trim();
+
+    // If line is empty, just highlight it in gray and return
+    if (!lineContent) {
+      const lineNumber = position.lineNumber;
+      const decorations = [{
+        range: new monaco.Range(lineNumber, 1, lineNumber, 1),
+        options: {
+          isWholeLine: true,
+          className: 'bg-gray-700/30'
+        }
+      }];
+      
+      // Remove decoration after 1 second
+      const decorationsCollection = editorRef.current.createDecorationsCollection(decorations);
+      setTimeout(() => {
+        decorationsCollection.clear();
+      }, 1000);
+      
+      return;
+    }
+
+    // Update decorations when clicking on a new line
+    if (clickedLine !== position.lineNumber) {
+      const newDecorations = [{
+        range: new monaco.Range(position.lineNumber, 1, position.lineNumber, 1),
+        options: {
+          isWholeLine: true,
+          className: 'focused-line'
+        }
+      }];
+      decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, newDecorations);
+    }
+
+    setClickedLine(position.lineNumber);
+    setLoadingPosition({ x: e.event.posx, y: e.event.posy });
+    setLoading(true);
+
+    try {
+      const suggestionResults = await getCodeSuggestions(model.getValue(), lineContent);
+      setSuggestions(suggestionResults);
+      setMenuPosition({ x: e.event.posx, y: e.event.posy });
+    } catch (error) {
+      console.error('Failed to get suggestions:', error);
+      // Clear any previous errors
+      onError(null);
+      // Create new error with the same structure as code generation errors
+      const errorMessage = error.details?.error?.message || error.message;
+      const errorObj = new Error(errorMessage);
+      errorObj.details = error.details?.error || error.details;
+      onError(errorObj);
+      setSuggestions([{ text: 'Error', preview: errorMessage }]);
+    } finally {
+      setLoading(false);
+      setLoadingPosition(null);
+    }
+  };
+
   const handleEditorDidMount = (editor, monaco) => {
     console.log('Editor mounted');
     editorRef.current = editor;
@@ -224,47 +292,7 @@ function CodeEditor() {
     `;
     document.head.appendChild(style);
 
-    editor.onContextMenu(async (e) => {
-      e.event.preventDefault();
-      const position = e.target.position;
-      
-      if (position) {
-        const editorCoords = editor.getTargetAtClientPoint(e.event.posx, e.event.posy);
-        if (!editorCoords) return;
-
-        // Update decorations when clicking on a new line
-        if (clickedLine !== position.lineNumber) {
-          const newDecorations = [{
-            range: new monaco.Range(position.lineNumber, 1, position.lineNumber, 1),
-            options: {
-              isWholeLine: true,
-              className: 'focused-line'
-            }
-          }];
-          decorationsRef.current = editor.deltaDecorations(decorationsRef.current, newDecorations);
-        }
-
-        setClickedLine(position.lineNumber);
-        setLoadingPosition({ x: e.event.posx, y: e.event.posy });
-        setLoading(true);
-        
-        const model = editor.getModel();
-        const currentCode = model.getValue();
-        const lineContent = model.getLineContent(position.lineNumber);
-        
-        try {
-          const suggestionResults = await getCodeSuggestions(currentCode, lineContent);
-          setSuggestions(suggestionResults);
-          setMenuPosition({ x: e.event.posx, y: e.event.posy });
-        } catch (error) {
-          console.error('Failed to get suggestions:', error);
-          setSuggestions([{ text: 'Error loading suggestions', preview: '' }]);
-        } finally {
-          setLoading(false);
-          setLoadingPosition(null);
-        }
-      }
-    });
+    editor.onContextMenu(handleContextMenu);
   };
 
   const handleEditorChange = (value) => {
@@ -327,7 +355,13 @@ function CodeEditor() {
       // Only show error if not aborted
       if (!abortController.signal.aborted) {
         console.error('Error in handleActionSelect:', error);
-        setError(error);
+        // Clear any previous errors
+        onError(null);
+        // Create new error with consistent structure
+        const errorMessage = error.details?.error?.message || error.message;
+        const errorObj = new Error(errorMessage);
+        errorObj.details = error.details?.error || error.details;
+        onError(errorObj);
       }
       
       // Only attempt to restore if we still have editor access and not aborted
@@ -347,7 +381,7 @@ function CodeEditor() {
     return () => {
       abortController.abort();
     };
-  }, [generating, applyDiffDecorations]);
+  }, [generating, applyDiffDecorations, onError]);
 
   const handleUndo = () => {
     console.log('Undoing changes...');
