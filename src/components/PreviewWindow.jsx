@@ -1,47 +1,21 @@
-import Editor from '@monaco-editor/react';
+import React from 'react';
 
-const PreviewWindow = ({ code, position, direction, onMouseEnter, onMouseLeave }) => {
+const PreviewWindow = ({ code, position, direction, onMouseEnter, onMouseLeave, onClick }) => {
   return (
     <div
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
+      onClick={onClick}
+      className="fixed w-[300px] h-[200px] bg-gray-900 border border-gray-700 rounded-md overflow-hidden shadow-lg z-[1001] select-none cursor-pointer"
       style={{
-        position: 'fixed',
         left: position.x,
         top: position.y,
-        width: '300px',
-        height: '200px',
-        backgroundColor: '#1e1e1e',
-        border: '1px solid #333',
-        borderRadius: '4px',
-        overflow: 'hidden',
-        boxShadow: '0 4px 8px rgba(0,0,0,0.3)',
-        zIndex: 1001,
         animation: 'fadeIn 0.2s ease'
       }}
     >
-      <Editor
-        height="200px"
-        defaultLanguage="javascript"
-        defaultValue={code}
-        theme="vs-dark"
-        options={{
-          readOnly: true,
-          minimap: { enabled: false },
-          scrollbar: {
-            vertical: 'hidden',
-            horizontal: 'hidden'
-          },
-          lineNumbers: 'off',
-          fontSize: 12,
-          wordWrap: 'on',
-          contextmenu: false,
-          renderLineHighlight: 'none',
-          overviewRulerLanes: 0,
-          hideCursorInOverviewRuler: true,
-          overviewRulerBorder: false
-        }}
-      />
+      <pre className="p-3 text-sm text-gray-300 font-mono whitespace-pre-wrap h-full overflow-hidden text-left">
+        {code.trimStart()}
+      </pre>
     </div>
   );
 };

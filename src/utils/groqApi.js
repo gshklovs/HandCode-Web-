@@ -2,6 +2,11 @@ const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 export async function getCodeSuggestions(fullCode, selectedLine) {
+  if (!fullCode || !selectedLine) {
+    console.error('Missing required parameters:', { fullCode: !!fullCode, selectedLine: !!selectedLine });
+    throw new Error('Missing required parameters for code suggestions');
+  }
+
   const prompt = `Given this code context:
     
 ${fullCode}
@@ -9,23 +14,30 @@ ${fullCode}
 And specifically focusing on this line:
 ${selectedLine}
 
-Provide exactly 4 code suggestions in the following format:
+Provide exactly 4 code suggestions. Each suggestion should start with "Title:" directly (no backticks or numbers) and be followed by a description in this format:
 
-1. Title: [Short action title]
-   Description: [Code snippet or detailed implementation steps]
+Title: [Short action title]
+Description: [Code snippet or detailed implementation steps]
 
-2. Title: [Short action title]
-   Description: [Code snippet or detailed implementation steps]
+Title: [Short action title]
+Description: [Code snippet or detailed implementation steps]
 
-3. Title: [Short action title]
-   Description: [Code snippet or detailed implementation steps]
+Title: [Short action title]
+Description: [Code snippet or detailed implementation steps]
 
-4. Title: [Short action title]
-   Description: [Code snippet or detailed implementation steps]
+Title: [Short action title]
+Description: [Code snippet or detailed implementation steps]
 
 Consider refactoring, debugging, extending functionality, and improving performance.
-Return ONLY the numbered list with titles and descriptions as shown above.
-Do not include any additional explanations or comments.`;
+Return ONLY the suggestions with titles and descriptions as shown above.
+Do not include any additional explanations, comments, or markdown formatting.
+Rules:
+1. NO markdown formatting (no backticks, no \`\`\`javascript blocks)
+2. NO numbered suggestions
+3. NO additional explanations or comments
+4. Code should be provided as plain text
+5. Each suggestion must be exactly two lines: Title and Description
+`;
 
   try {
     const response = await fetch(GROQ_API_URL, {
@@ -49,7 +61,9 @@ Do not include any additional explanations or comments.`;
 
     const data = await response.json();
     if (!response.ok) {
-      throw new Error(data.error?.message || 'API request failed');
+      const error = new Error(response.status === 429 ? 'Rate Limit Exceeded' : 'API Request Failed');
+      error.details = data.error?.message || 'Server error';
+      throw error;
     }
 
     const lines = data.choices[0].message.content
@@ -60,7 +74,7 @@ Do not include any additional explanations or comments.`;
     for (let i = 0; i < lines.length; i += 2) {
       if (lines[i] && lines[i + 1]) {
         suggestions.push({
-          text: lines[i].replace(/^\d+\.\s+/, ''), // Remove number prefix
+          text: lines[i].replace(/^\d+\.\s+/, '').replace('Title: ', ''), // Remove number prefix and "Title: "
           preview: lines[i + 1].replace(/^\s*Description:\s*/, '') // Remove Description: prefix
         });
       }
@@ -73,7 +87,12 @@ Do not include any additional explanations or comments.`;
   }
 }
 
-export async function generateCode(fullCode, title, description) {
+export async function generateCode(fullCode, title, description, signal) {
+  if (!fullCode || !title) {
+    console.error('Missing required parameters:', { fullCode: !!fullCode, title: !!title });
+    throw new Error('Missing required parameters for code generation');
+  }
+
   console.log('Generating code with:', { title, description });
   
   const prompt = `You are an IDE code generator. Given this code:
@@ -82,7 +101,7 @@ ${fullCode}
 
 Apply this change:
 ${title}
-${description}
+${description || ''}
 
 Rules:
 1. Return ONLY valid, runnable code
@@ -122,26 +141,41 @@ The response should start directly with the code (e.g. 'class Counter {' or 'imp
         frequency_penalty: 0.2,
         presence_penalty: 0.2,
       }),
+      signal, // Add abort signal to fetch request
     });
 
     const data = await response.json();
     if (!response.ok) {
-      throw new Error(data.error?.message || 'API request failed');
+      const error = new Error(response.status === 429 ? 'Rate Limit Exceeded' : 'API Request Failed');
+      error.details = data.error?.message || 'Server error';
+      throw error;
     }
 
     const generatedCode = data.choices[0].message.content.trim();
     
+    // Remove any markdown code block formatting
+    const cleanCode = generatedCode
+      .replace(/^```javascript\n?/g, '')  // Remove opening ```javascript
+      .replace(/^```js\n?/g, '')         // Remove opening ```js
+      .replace(/^```\n?/g, '')           // Remove any other opening ```
+      .replace(/\n?```$/g, '')           // Remove closing ```
+      .trim();
+    
     // Validate the generated code
-    if (generatedCode === fullCode) {
+    if (cleanCode === fullCode) {
       throw new Error('Generated code is identical to input');
     }
     
-    if (!generatedCode.match(/^(import|class|const|let|var|function)/)) {
+    if (!cleanCode || cleanCode.length < 10) {
       throw new Error('Generated content does not appear to be valid code');
     }
 
-    return generatedCode;
+    return cleanCode;
   } catch (error) {
+    if (error.name === 'AbortError') {
+      console.log('Code generation aborted');
+      return null;
+    }
     console.error('Error generating code:', error);
     throw error;
   }

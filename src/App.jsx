@@ -8,7 +8,10 @@ function App() {
   const [count, setCount] = useState(0)
 
   return (
-    <div className="App">
+    <div 
+      className="App"
+    >
+      <div className="absolute inset-0 rounded-lg blur-xl opacity-75 bg-gradient-to-r from-purple-500 via-blue-500 to-pink-500"></div>
       <CodeEditor />
       <div>
         <a href="https://vite.dev" target="_blank">

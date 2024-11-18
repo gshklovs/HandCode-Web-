@@ -1,10 +1,10 @@
 import BaseActionMenu from './BaseActionMenu';
 
 const buttonStyles = [
-  { top: -40, left: 40, transform: 'translate(0%, -50%)' },      // Top right
-  { top: -40, left: -40, transform: 'translate(-100%, -50%)' },  // Top left
-  { top: 40, left: 40, transform: 'translate(0%, -50%)' },       // Bottom right
-  { top: 40, left: -40, transform: 'translate(-100%, -50%)' }    // Bottom left
+  { top: '50%', left: '50%', transform: 'translate(20px, -80px)' },     // Top right
+  { top: '50%', left: '50%', transform: 'translate(-260px, -80px)' },   // Top left
+  { top: '50%', left: '50%', transform: 'translate(20px, 20px)' },      // Bottom right
+  { top: '50%', left: '50%', transform: 'translate(-260px, 20px)' }     // Bottom left
 ];
 
 const getPreviewDirection = (buttonIndex) => {

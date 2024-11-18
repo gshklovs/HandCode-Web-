@@ -4,6 +4,7 @@ import { getCodeSuggestions, generateCode } from '../utils/groqApi';
 import { createDiffSummary } from '../utils/diffUtil';
 import SquareLayoutActionMenu from './SquareLayoutActionMenu';
 import LoadingDots from './LoadingDots';
+import TopBar from './TopBar';
 
 const initialCode = `class Counter {
   constructor(initialValue = 0) {
@@ -49,7 +50,10 @@ console.log(counter.getHistory());
 `;
 
 function CodeEditor() {
-  const [code, setCode] = useState(initialCode);
+  const [code, setCode] = useState(() => {
+    const savedCode = localStorage.getItem('editorCode');
+    return savedCode || initialCode;
+  });
   const [previousCode, setPreviousCode] = useState(null);
   const [clickedLine, setClickedLine] = useState(null);
   const [selectedAction, setSelectedAction] = useState(null);
@@ -58,6 +62,7 @@ function CodeEditor() {
   const [generating, setGenerating] = useState(false);
   const [menuPosition, setMenuPosition] = useState(null);
   const [loadingPosition, setLoadingPosition] = useState(null);
+  const [error, setError] = useState(null);
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const decorationsRef = useRef([]);
@@ -124,7 +129,7 @@ function CodeEditor() {
           currentLineNumber + lineOffset,
           1,
           currentLineNumber + lineOffset,
-          newLines[i].length + 1
+          (newLines[i] || '').length + 1
         );
         
         // Add whole line background
@@ -265,69 +270,52 @@ function CodeEditor() {
   const handleEditorChange = (value) => {
     if (value !== undefined && value !== null) {
       setCode(value);
+      localStorage.setItem('editorCode', value);
     }
   };
 
   const handleActionSelect = useCallback(async (suggestion) => {
-    if (!editorRef.current || generating) return;
-
-    const model = editorRef.current.getModel();
-    if (!model) return;
+    const abortController = new AbortController();
 
     try {
+      setError(null);  // Clear any previous errors
+      if (!editorRef.current || generating) return;
+      if (!suggestion?.text) {
+        throw new Error('Invalid suggestion format');
+      }
+
+      const model = editorRef.current.getModel();
+      if (!model) return;
+
       setGenerating(true);
       setSuggestions([]); // Clear suggestions immediately
       setMenuPosition(null); // Hide menu immediately
       
       const currentCode = model.getValue();
-      setPreviousCode(currentCode);
-
-      // Ensure we have the correct suggestion structure
-      const title = suggestion.text || suggestion.title || '';
-      const preview = suggestion.preview || suggestion.description || '';
+      setPreviousCode(currentCode); // Store current code before changes
       
-      if (!title || !preview) {
-        console.error('Invalid suggestion format:', suggestion);
-        throw new Error('Invalid suggestion format');
-      }
-
-      setSelectedAction(title);
-
-      console.log('Generating new code...', { title, preview });
-      const newCode = await generateCode(currentCode, title, preview);
+      const newCode = await generateCode(currentCode, suggestion.text, suggestion.preview, abortController.signal);
       
-      // Safety check - user might have navigated away or component unmounted
-      if (!editorRef.current) {
-        console.warn('Editor reference lost during code generation');
+      // Check if component is still mounted and operation wasn't aborted
+      if (abortController.signal.aborted || !editorRef.current) {
         return;
       }
 
-      // Get fresh model reference
-      const updatedModel = editorRef.current.getModel();
-      if (!updatedModel) {
-        console.warn('Editor model not available after code generation');
-        return;
+      if (!newCode) {
+        throw new Error('Failed to generate code');
       }
 
-      const diff = createDiffSummary(currentCode, newCode);
-      console.log('Code changes:', '\n' + diff);
-      
-      if (diff.trim() === '') {
-        console.warn('No changes detected in generated code');
-        setGenerating(false);
-        setSelectedAction(null);
-        return;
-      }
-
-      // Use edit operations for better undo/redo support
-      const editOperation = {
-        range: updatedModel.getFullModelRange(),
-        text: newCode,
-        forceMoveMarkers: true
-      };
-
-      updatedModel.pushEditOperations([], [editOperation], () => null);
-      setCode(newCode);
+      // Update the editor with new code
+      model.pushEditOperations(
+        [],
+        [
+          {
+            range: model.getFullModelRange(),
+            text: newCode
+          }
+        ],
+        () => null
+      );
       
       // Ensure we still have editor reference before applying decorations
       if (editorRef.current) {
@@ -336,27 +324,29 @@ function CodeEditor() {
       
       console.log('Editor model updated successfully');
     } catch (error) {
-      console.error('Error in handleActionSelect:', error);
+      // Only show error if not aborted
+      if (!abortController.signal.aborted) {
+        console.error('Error in handleActionSelect:', error);
+        setError(error);
+      }
       
-      // Only attempt to restore if we still have editor access
-      if (editorRef.current) {
+      // Only attempt to restore if we still have editor access and not aborted
+      if (editorRef.current && !abortController.signal.aborted) {
         const model = editorRef.current.getModel();
         if (model) {
-          const currentCode = model.getValue();
-          const restoreOperation = {
-            range: model.getFullModelRange(),
-            text: currentCode,
-            forceMoveMarkers: true
-          };
-          
-          model.pushEditOperations([], [restoreOperation], () => null);
-          setCode(currentCode);
+          // Keep current code on error
+          console.log('Keeping current code due to error');
         }
       }
     } finally {
-      setGenerating(false);
-      setSelectedAction(null);
+      if (!abortController.signal.aborted) {
+        setGenerating(false);
+      }
     }
+
+    return () => {
+      abortController.abort();
+    };
   }, [generating, applyDiffDecorations]);
 
   const handleUndo = () => {
@@ -385,6 +375,18 @@ function CodeEditor() {
     setSuggestions([]);
   };
 
+  useEffect(() => {
+    return () => {
+      // Cleanup any pending operations
+      if (editorRef.current) {
+        const model = editorRef.current.getModel();
+        if (model) {
+          model.dispose();
+        }
+      }
+    };
+  }, []);
+
   return (
     <div style={{ 
       display: 'flex', 
@@ -396,23 +398,22 @@ function CodeEditor() {
       maxWidth: '1200px',
       overflow: 'hidden'
     }}>
-      <div style={{ 
-        padding: '15px', 
-        backgroundColor: '#1e1e1e', 
-        color: '#fff',
-        borderBottom: '1px solid #333',
-        transition: 'all 0.3s ease',
-        width: '100%',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center'
-      }}>
-        <div>
-          {selectedAction && <div>Applied: {selectedAction}</div>}
-        </div>
-        {previousCode && (
+      <TopBar error={error} onClear={() => setError(null)} />
+      {previousCode ? (
+        <div style={{ 
+          padding: '15px', 
+          backgroundColor: '#1e1e1e', 
+          color: '#fff',
+          borderBottom: '1px solid #333',
+          transition: 'all 0.3s ease',
+          width: '100%',
+          display: 'flex',
+          justifyContent: 'center',
+          borderRadius: '8px 8px 0 0',
+          alignItems: 'center'
+        }}>
           <button
-            className="text-center mx-auto"
+            className="text-center"
             onClick={handleUndo}
             style={{
               backgroundColor: '#2d2d2d',
@@ -426,9 +427,47 @@ function CodeEditor() {
           >
             Undo Changes
           </button>
-        )}
-      </div>
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        </div>
+      ) : (
+        <div style={{ 
+          padding: '15px', 
+          backgroundColor: '#1e1e1e', 
+          color: '#fff',
+          borderBottom: '1px solid #333',
+          transition: 'all 0.3s ease',
+          width: '100%',
+          display: 'flex',
+          justifyContent: 'center',
+          borderRadius: '8px 8px 0 0',
+          alignItems: 'center'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ 
+              fontSize: '16px', 
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <span style={{ color: '#9ca3af' }}>Welcome to</span>
+              <span className="bg-gradient-to-r from-pink-500 via-purple-500 to-blue-500 text-transparent bg-clip-text">
+                HandCode
+              </span>
+            </div>
+            <div style={{ 
+              fontSize: '16px',
+              color: '#6b7280',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <span>—</span>
+              <span>Right-click any line to view and select AI-powered improvements</span>
+            </div>
+          </div>
+        </div>
+      )}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden', marginBottom: '60px', borderRadius: '0 0 8px 8px'}}>
         <Editor
           height="100%"
           defaultLanguage="javascript"
