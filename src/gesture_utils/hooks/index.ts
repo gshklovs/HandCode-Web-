@@ -122,4 +122,5 @@ function useGestureRecognition({ videoElement, canvasEl }: IHandGestureLogic) {
   return { landmarks, maxVideoHeight, maxVideoWidth, canvasEl, videoElement };
 }
 
+
 export default useGestureRecognition;
