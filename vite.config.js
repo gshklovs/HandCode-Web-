@@ -11,10 +11,25 @@ export default defineConfig({
       'Cross-Origin-Resource-Policy': 'cross-origin'
     }
   },
-  resolve: {
-    alias: {
-      '@mediapipe/hands': '/node_modules/@mediapipe/hands/hands.js',
-      '@mediapipe/camera_utils': '/node_modules/@mediapipe/camera_utils/camera_utils.js'
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          mediapipe: ['@mediapipe/hands', '@mediapipe/camera_utils'],
+          tensorflow: ['@tensorflow/tfjs']
+        }
+      }
+    },
+    commonjsOptions: {
+      transformMixedEsModules: true
     }
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      define: {
+        global: 'globalThis'
+      }
+    },
+    include: ['@mediapipe/hands', '@mediapipe/camera_utils']
   }
 })

@@ -172,37 +172,62 @@ function useCursorPoints({ videoElement, canvasEl }: ICursorPointsLogic) {
 
   useEffect(() => {
     const initializeMediaPipe = async () => {
-      const { Hands } = await import('@mediapipe/hands');
-      const { Camera } = await import('@mediapipe/camera_utils');
+      try {
+        // Import MediaPipe modules
+        const handsModule = await import('@mediapipe/hands');
+        const cameraModule = await import('@mediapipe/camera_utils');
 
-      hands.current = new Hands({
-        locateFile: (file) => {
-          return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`;
+        if (!handsModule.Hands || !cameraModule.Camera) {
+          console.error('MediaPipe modules not loaded correctly');
+          return;
         }
-      });
 
-      hands.current.setOptions({
-        maxNumHands: 2,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      });
-
-      hands.current.onResults(onResults);
-
-      if (videoElement.current) {
-        camera.current = new Camera(videoElement.current, {
-          onFrame: async () => {
-            await hands.current?.send({ image: videoElement.current });
-          },
-          width: window.innerWidth,
-          height: window.innerHeight,
+        // Initialize hands
+        hands.current = new handsModule.Hands({
+          locateFile: (file: string) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`;
+          }
         });
-        camera.current.start();
+
+        // Configure hands
+        hands.current.setOptions({
+          maxNumHands: 2,
+          modelComplexity: 1,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+        });
+
+        hands.current.onResults(onResults);
+
+        // Initialize camera if video element is ready
+        if (videoElement.current) {
+          camera.current = new cameraModule.Camera(videoElement.current, {
+            onFrame: async () => {
+              if (hands.current && videoElement.current) {
+                try {
+                  await hands.current.send({ image: videoElement.current });
+                } catch (err) {
+                  console.error('Error sending frame to hands:', err);
+                }
+              }
+            },
+            width: window.innerWidth,
+            height: window.innerHeight,
+          });
+
+          try {
+            await camera.current.start();
+          } catch (err) {
+            console.error('Error starting camera:', err);
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing MediaPipe:', error);
       }
     };
 
-    initializeMediaPipe().catch(console.error);
+    // Initialize MediaPipe
+    initializeMediaPipe();
 
     // Start continuous render loop
     renderLoopRef.current = requestAnimationFrame(renderFrame);
@@ -216,6 +241,9 @@ function useCursorPoints({ videoElement, canvasEl }: ICursorPointsLogic) {
       }
       if (renderLoopRef.current) {
         cancelAnimationFrame(renderLoopRef.current);
+      }
+      if (hands.current) {
+        hands.current.close();
       }
     };
   }, []);
