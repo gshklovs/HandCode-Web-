@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import CodeEditor from './components/Editor'
 import TopBar from './components/TopBar'
+// import GestureOverlay from './components/GestureOverlay'
+import CursorOverlay from './components/CursorOverlay'
 import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
@@ -24,6 +26,8 @@ function App() {
       <div className="absolute inset-0 rounded-lg blur-xl opacity-75 bg-gradient-to-r from-purple-500 via-blue-500 to-pink-500"></div>
       <TopBar error={error} onClear={clearError} />
       <CodeEditor onError={handleError} />
+      {/* <GestureOverlay /> */}
+      <CursorOverlay />
       <div>
         <a href="https://vite.dev" target="_blank">
           <img src={viteLogo} className="logo" alt="Vite logo" />

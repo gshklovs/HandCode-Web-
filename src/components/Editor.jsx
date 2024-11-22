@@ -56,6 +56,7 @@ function CodeEditor({ onError }) {
   });
   const [previousCode, setPreviousCode] = useState(null);
   const [clickedLine, setClickedLine] = useState(null);
+  const [selectedLineHeight, setSelectedLineHeight] = useState(3);
   const [selectedAction, setSelectedAction] = useState(null);
   const [suggestions, setSuggestions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -160,6 +161,8 @@ function CodeEditor({ onError }) {
   }, []);
 
   const handleContextMenu = async (e) => {
+    setSelectedLineHeight(selectedLineHeight + 1);
+    
     e.event.preventDefault();
     if (!editorRef.current) return;
 
@@ -193,8 +196,9 @@ function CodeEditor({ onError }) {
 
     // Update decorations when clicking on a new line
     if (clickedLine !== position.lineNumber) {
+      setSelectedLineHeight(selectedLineHeight + 1);
       const newDecorations = [{
-        range: new monaco.Range(position.lineNumber, 1, position.lineNumber, 1),
+        range: new monaco.Range(position.lineNumber, 1, position.lineNumber + selectedLineHeight, 1),
         options: {
           isWholeLine: true,
           className: 'focused-line'

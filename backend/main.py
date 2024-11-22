@@ -60,9 +60,11 @@ async def call_groq_api(messages):
                 timeout=30.0
             )
             try:
-                response_json = response.json()
                 logger.info(f"Groq API response status: {response.status_code}")
+                response_json = response.json()
                 logger.debug(f"Groq API response: {response_json}")
+
+                
             except ValueError as e:
                 logger.error(f"Failed to parse JSON response: {e}")
                 return JSONResponse(
