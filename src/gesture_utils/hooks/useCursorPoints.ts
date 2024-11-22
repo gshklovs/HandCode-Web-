@@ -1,6 +1,6 @@
 import { Ref, useEffect, useRef } from 'react';
 import { Hands } from '@mediapipe/hands';
-import { Camera } from '@mediapipe/camera_utils';
+import { Camera } from '@mediapipe/camera_utils/camera_utils.js';
 import useKeyPointClassifier from './useKeyPointClassifier';
 import CONFIGS from '../../constants';
 
@@ -173,10 +173,11 @@ function useCursorPoints({ videoElement, canvasEl }: ICursorPointsLogic) {
   }
 
   useEffect(() => {
+    // Initialize hands object
     hands.current = new Hands({
       locateFile: (file) => {
         return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-      },
+      }
     });
 
     hands.current.setOptions({
