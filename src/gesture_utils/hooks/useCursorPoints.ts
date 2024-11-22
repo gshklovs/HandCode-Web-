@@ -1,6 +1,5 @@
 import { Ref, useEffect, useRef } from 'react';
-import { Hands } from '@mediapipe/hands';
-import { Camera } from '@mediapipe/camera_utils';
+import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 import useKeyPointClassifier from './useKeyPointClassifier';
 import CONFIGS from '../../constants';
 
@@ -16,195 +15,94 @@ interface ICursorPointsLogic {
 interface CursorPoint {
   x: number;
   y: number;
-  isOpen?: boolean;
-  animationProgress?: number;
+  gestureState?: string;
   lastUpdated?: number;
 }
 
+interface AnimationEffect {
+  x: number;
+  y: number;
+  startTime: number;
+}
+
 function useCursorPoints({ videoElement, canvasEl }: ICursorPointsLogic) {
-  const hands = useRef<any>(null);
-  const camera = useRef<any>(null);
+  const handLandmarker = useRef<any>(null);
   const cursorPoints = useRef<CursorPoint[]>([]);
+  const animationEffect = useRef<AnimationEffect | null>(null);
   const { processLandmark } = useKeyPointClassifier();
   const animationFrameRef = useRef<number>();
   const renderLoopRef = useRef<number>();
-
-  const drawCursor = (ctx: CanvasRenderingContext2D, point: CursorPoint, width: number, height: number) => {
-    const isOpen = point.isOpen;
-    const color = isOpen ? '#00FF00' : '#8A2BE2'; // Green for open, Purple for closed
-
-    // Draw blur shadow
-    ctx.filter = 'blur(8px)';
-    ctx.beginPath();
-    ctx.arc(
-      point.x * width,
-      point.y * height,
-      12,
-      0,
-      2 * Math.PI
-    );
-    ctx.fillStyle = color.replace(')', ', 0.3)').replace('rgb', 'rgba');
-    ctx.fill();
-
-    // Draw sharp inner circle
-    ctx.filter = 'none';
-    ctx.beginPath();
-    ctx.arc(
-      point.x * width,
-      point.y * height,
-      6,
-      0,
-      2 * Math.PI
-    );
-    ctx.fillStyle = color;
-    ctx.fill();
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // Draw animation if in progress
-    if (point.animationProgress !== undefined && point.animationProgress < 1) {
-      const progress = point.animationProgress;
-      const radius = 12 + (progress * 150); // Expand even larger (from 12 to 162 pixels)
-      
-      // Create donut effect by making the inner part fade faster
-      const innerRadius = progress * 60; // Larger inner radius
-      
-      // Exponential fade out as the effect expands
-      const fadeOutFactor = Math.pow(1 - progress, 2); // Square the progress for faster fade
-      const outerAlpha = fadeOutFactor * 0.4; // Base transparency that fades out exponentially
-      const innerAlpha = Math.max(0, fadeOutFactor - progress * 4); // Inner part fades even faster
-
-      ctx.filter = 'blur(24px)'; // Increased blur
-      
-      // Draw outer glow
-      ctx.beginPath();
-      ctx.arc(
-        point.x * width,
-        point.y * height,
-        radius,
-        0,
-        2 * Math.PI
-      );
-      ctx.fillStyle = `${color.replace(')', `, ${outerAlpha * 0.5})`).replace('rgb', 'rgba')}`;
-      ctx.fill();
-
-      // Create hole in the middle by drawing with destination-out
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.beginPath();
-      ctx.arc(
-        point.x * width,
-        point.y * height,
-        innerRadius,
-        0,
-        2 * Math.PI
-      );
-      ctx.fillStyle = `rgba(0, 0, 0, ${1 - innerAlpha})`;
-      ctx.fill();
-      ctx.globalCompositeOperation = 'source-over';
-    }
-  };
-
-  const renderFrame = () => {
-    if (canvasEl.current) {
-      const ctx = canvasEl.current.getContext("2d");
-      const width = canvasEl.current.width;
-      const height = canvasEl.current.height;
-
-      ctx.save();
-      ctx.clearRect(0, 0, width, height);
-
-      // Filter out stale cursors (older than 100ms)
-      const now = Date.now();
-      cursorPoints.current = cursorPoints.current.filter(
-        point => point.lastUpdated && now - point.lastUpdated < 100
-      );
-
-      // Draw all valid cursors
-      cursorPoints.current.forEach(point => drawCursor(ctx, point, width, height));
-
-      ctx.restore();
-    }
-    renderLoopRef.current = requestAnimationFrame(renderFrame);
-  };
-
-  async function onResults(results) {
-    if (canvasEl.current) {
-      const width = canvasEl.current.width;
-      const height = canvasEl.current.height;
-
-      if (results.multiHandLandmarks) {
-        // Process each hand
-        const newPoints = await Promise.all(results.multiHandLandmarks.map(async (landmarks, index) => {
-          const thumbTip = landmarks[THUMB_TIP];
-          const indexTip = landmarks[INDEX_TIP];
-          const gestureId = await processLandmark(landmarks, { width, height });
-          const isOpen = CONFIGS.keypointClassifierLabels[gestureId] === 'Open';
-          
-          const point: CursorPoint = {
-            x: (thumbTip.x + indexTip.x) / 2,
-            y: (thumbTip.y + indexTip.y) / 2,
-            isOpen,
-            lastUpdated: Date.now()
-          };
-
-          // Start animation if gesture changed from open to closed
-          const prevPoint = cursorPoints.current[index];
-          if (prevPoint && prevPoint.isOpen && !isOpen) {
-            point.animationProgress = 0;
-          } else if (prevPoint && prevPoint.animationProgress !== undefined) {
-            point.animationProgress = prevPoint.animationProgress;
-          }
-
-          return point;
-        }));
-
-        cursorPoints.current = newPoints;
-
-        // Update animation progress
-        cursorPoints.current = cursorPoints.current.map(point => ({
-          ...point,
-          animationProgress: point.animationProgress !== undefined 
-            ? Math.min((point.animationProgress + 0.12), 1) // Even faster animation
-            : undefined
-        }));
-      }
-    }
-  }
+  const isProcessing = useRef(false);
+  const stream = useRef<MediaStream | null>(null);
+  const lastGestureState = useRef<string>('open');
 
   useEffect(() => {
-    hands.current = new Hands({
-      locateFile: (file) => {
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-      },
-    });
+    if (!videoElement.current) return;
 
-    hands.current.setOptions({
-      maxNumHands: 2,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    });
+    const video = videoElement.current;
+    
+    const handleCanPlay = () => {
+      if (canvasEl.current) {
+        canvasEl.current.width = video.videoWidth;
+        canvasEl.current.height = video.videoHeight;
+      }
+    };
 
-    hands.current.onResults(onResults);
+    video.addEventListener('canplay', handleCanPlay);
+    return () => video.removeEventListener('canplay', handleCanPlay);
+  }, []);
 
-    if (videoElement.current) {
-      camera.current = new Camera(videoElement.current, {
-        onFrame: async () => {
-          await hands.current.send({ image: videoElement.current });
-        },
-        width: window.innerWidth,
-        height: window.innerHeight,
-      });
-      camera.current.start();
+  useEffect(() => {
+    let isInitialized = false;
+
+    async function initializeCamera() {
+      if (isInitialized || !videoElement.current) return;
+      isInitialized = true;
+
+      try {
+        stream.current = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: 'user'
+          }
+        });
+
+        const video = videoElement.current;
+        video.srcObject = stream.current;
+        
+        await new Promise<void>((resolve) => {
+          video.onloadedmetadata = () => {
+            video.play().then(resolve).catch(console.error);
+          };
+        });
+
+        const vision = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+        );
+        
+        handLandmarker.current = await HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+            delegate: "GPU"
+          },
+          runningMode: "VIDEO",
+          numHands: 2
+        });
+
+        startVideoProcessing();
+      } catch (error) {
+        console.error("Error initializing camera or HandLandmarker:", error);
+        isInitialized = false;
+      }
     }
 
-    // Start continuous render loop
-    renderLoopRef.current = requestAnimationFrame(renderFrame);
+    initializeCamera();
 
     return () => {
-      if (camera.current) {
-        camera.current.stop();
+      isInitialized = false;
+      if (stream.current) {
+        stream.current.getTracks().forEach(track => track.stop());
       }
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -215,7 +113,148 @@ function useCursorPoints({ videoElement, canvasEl }: ICursorPointsLogic) {
     };
   }, []);
 
-  return { cursorPoints };
+  const getColorForGesture = (gestureState: string): [number, number, number] => {
+    switch (gestureState) {
+      case 'open':
+        return [0, 255, 0]; // Green
+      case 'closed':
+        return [138, 43, 226]; // Purple
+      case 'pointing':
+        return [255, 105, 180]; // Hot Pink
+      default:
+        return [138, 43, 226]; // Default to purple
+    }
+  };
+
+  const drawCursor = (ctx: CanvasRenderingContext2D, point: CursorPoint) => {
+    const color = getColorForGesture(point.gestureState || 'open');
+    const baseRadius = 15;
+    
+    ctx.filter = 'blur(4px)';
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, baseRadius, 0, 2 * Math.PI);
+    ctx.fillStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.3)`;
+    ctx.fill();
+
+    ctx.filter = 'none';
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, baseRadius * 0.7, 0, 2 * Math.PI);
+    ctx.fillStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.8)`;
+    ctx.fill();
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  };
+
+  const drawAnimationEffect = (ctx: CanvasRenderingContext2D, point: CursorPoint) => {
+    if (!animationEffect.current) return;
+
+    const currentTime = Date.now();
+    const animationDuration = 400; // 400ms duration
+    const timeSinceStart = currentTime - animationEffect.current.startTime;
+    
+    if (timeSinceStart >= animationDuration) {
+      animationEffect.current = null;
+      return;
+    }
+
+    const progress = timeSinceStart / animationDuration;
+    const maxRadius = 100;
+    const currentRadius = maxRadius * progress;
+    
+    // Start with 1.5x opacity (0.45) and fade out
+    const baseAlpha = 0.3 * 1.5; // Base alpha increased by 50%
+    const alpha = baseAlpha * Math.pow(1 - progress, 1.5); // Faster fade out with exponential curve
+    
+    // Update effect position to follow cursor
+    animationEffect.current.x = point.x;
+    animationEffect.current.y = point.y;
+    
+    // Draw expanding blur effect
+    ctx.filter = `blur(${8 + progress * 12}px)`;
+    ctx.beginPath();
+    ctx.arc(animationEffect.current.x, animationEffect.current.y, currentRadius, 0, 2 * Math.PI);
+    ctx.fillStyle = `rgba(138, 43, 226, ${alpha})`; // Always purple
+    ctx.fill();
+  };
+
+  const startVideoProcessing = () => {
+    if (!videoElement.current || !handLandmarker.current || !canvasEl.current) return;
+
+    const processFrame = async () => {
+      if (!isProcessing.current && videoElement.current.readyState === 4) {
+        isProcessing.current = true;
+        
+        try {
+          const startTimeMs = performance.now();
+          const results = await handLandmarker.current.detectForVideo(
+            videoElement.current,
+            startTimeMs
+          );
+          
+          if (results.landmarks && results.landmarks.length > 0) {
+            const handLandmarks = results.landmarks[0];
+            const handState = await processLandmark(handLandmarks, videoElement.current);
+            
+            const x = handLandmarks[INDEX_TIP].x * canvasEl.current.width;
+            const y = handLandmarks[INDEX_TIP].y * canvasEl.current.height;
+            
+            if (handState === 'closed' && lastGestureState.current !== 'closed') {
+              console.log('Starting closed animation');
+              animationEffect.current = {
+                x,
+                y,
+                startTime: Date.now()
+              };
+            }
+            
+            lastGestureState.current = handState;
+            
+            cursorPoints.current = [{
+              x,
+              y,
+              gestureState: handState,
+              lastUpdated: Date.now()
+            }];
+          }
+        } catch (error) {
+          console.error("Error processing video frame:", error);
+        }
+        
+        isProcessing.current = false;
+      }
+      
+      animationFrameRef.current = requestAnimationFrame(processFrame);
+    };
+
+    processFrame();
+    
+    const renderLoop = () => {
+      if (canvasEl.current && cursorPoints.current.length > 0) {
+        const ctx = canvasEl.current.getContext('2d');
+        if (!ctx) return;
+
+        ctx.clearRect(0, 0, canvasEl.current.width, canvasEl.current.height);
+        
+        const currentPoint = cursorPoints.current[0];
+        if (Date.now() - (currentPoint.lastUpdated || 0) <= 100) {
+          if (animationEffect.current) {
+            drawAnimationEffect(ctx, currentPoint);
+          }
+          
+          drawCursor(ctx, currentPoint);
+        }
+      }
+      
+      renderLoopRef.current = requestAnimationFrame(renderLoop);
+    };
+    
+    renderLoop();
+  };
+
+  return {
+    cursorPoints: cursorPoints.current
+  };
 }
-// hello
+
 export default useCursorPoints;
