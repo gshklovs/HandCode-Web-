@@ -1,6 +1,4 @@
 import { Ref, useEffect, useRef } from 'react';
-import { Hands } from '@mediapipe/hands';
-import { Camera } from '@mediapipe/camera_utils/camera_utils.js';
 import useKeyPointClassifier from './useKeyPointClassifier';
 import CONFIGS from '../../constants';
 
@@ -173,32 +171,38 @@ function useCursorPoints({ videoElement, canvasEl }: ICursorPointsLogic) {
   }
 
   useEffect(() => {
-    // Initialize hands object
-    hands.current = new Hands({
-      locateFile: (file) => {
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-      }
-    });
+    const initializeMediaPipe = async () => {
+      const { Hands } = await import('@mediapipe/hands');
+      const { Camera } = await import('@mediapipe/camera_utils');
 
-    hands.current.setOptions({
-      maxNumHands: 2,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    });
-
-    hands.current.onResults(onResults);
-
-    if (videoElement.current) {
-      camera.current = new Camera(videoElement.current, {
-        onFrame: async () => {
-          await hands.current.send({ image: videoElement.current });
-        },
-        width: window.innerWidth,
-        height: window.innerHeight,
+      hands.current = new Hands({
+        locateFile: (file) => {
+          return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`;
+        }
       });
-      camera.current.start();
-    }
+
+      hands.current.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
+
+      hands.current.onResults(onResults);
+
+      if (videoElement.current) {
+        camera.current = new Camera(videoElement.current, {
+          onFrame: async () => {
+            await hands.current?.send({ image: videoElement.current });
+          },
+          width: window.innerWidth,
+          height: window.innerHeight,
+        });
+        camera.current.start();
+      }
+    };
+
+    initializeMediaPipe().catch(console.error);
 
     // Start continuous render loop
     renderLoopRef.current = requestAnimationFrame(renderFrame);
@@ -218,5 +222,5 @@ function useCursorPoints({ videoElement, canvasEl }: ICursorPointsLogic) {
 
   return { cursorPoints };
 }
-// hello
+
 export default useCursorPoints;

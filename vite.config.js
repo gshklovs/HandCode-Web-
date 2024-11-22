@@ -9,5 +9,11 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'require-corp',
       'Cross-Origin-Opener-Policy': 'same-origin'
     }
+  },
+  resolve: {
+    alias: {
+      '@mediapipe/hands': '/node_modules/@mediapipe/hands/hands.js',
+      '@mediapipe/camera_utils': '/node_modules/@mediapipe/camera_utils/camera_utils.js'
+    }
   }
 })
