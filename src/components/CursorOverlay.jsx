@@ -1,20 +1,18 @@
 import { useRef } from 'react';
 import useCursorPoints from '../gesture_utils/hooks/useCursorPoints';
 
-const CursorOverlay = () => {
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-
-  useCursorPoints({
+const CursorOverlay = ({ videoRef, canvasRef, onCursorUpdate }) => {
+  const { cursorPoints, cursorStates } = useCursorPoints({
     videoElement: videoRef,
     canvasEl: canvasRef,
+    onUpdate: onCursorUpdate
   });
 
   return (
-    <div className="fixed inset-0 z-[51] pointer-events-none">
+    <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10000 }}>
       <video
         ref={videoRef}
-        className="w-full h-full object-cover opacity-0"
+        className="hidden"
         autoPlay
         playsInline
         style={{ transform: 'scaleX(-1)' }}
@@ -22,9 +20,7 @@ const CursorOverlay = () => {
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full"
-        width={window.innerWidth}
-        height={window.innerHeight}
-        style={{ transform: 'scaleX(-1)' }}
+        style={{ transform: 'scaleX(-1)', zIndex: 10000 }}
       />
     </div>
   );

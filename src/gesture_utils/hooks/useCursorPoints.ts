@@ -1,4 +1,4 @@
-import { Ref, useEffect, useRef } from 'react';
+import { Ref, useEffect, useRef, useState } from 'react';
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 import useKeyPointClassifier from './useKeyPointClassifier';
 import CONFIGS from '../../constants';
@@ -10,31 +10,35 @@ const INDEX_TIP = 8;
 interface ICursorPointsLogic {
   videoElement: Ref<any>;
   canvasEl: Ref<any>;
+  onUpdate?: (points: CursorPoint[], states: CursorPoint[]) => void;
 }
 
-interface CursorPoint {
+export interface CursorPoint {
   x: number;
   y: number;
   gestureState?: string;
   lastUpdated?: number;
+  handedness?: string;
 }
 
 interface AnimationEffect {
   x: number;
   y: number;
   startTime: number;
+  handIndex: number;
 }
 
-function useCursorPoints({ videoElement, canvasEl }: ICursorPointsLogic) {
+function useCursorPoints({ videoElement, canvasEl, onUpdate }: ICursorPointsLogic) {
   const handLandmarker = useRef<any>(null);
   const cursorPoints = useRef<CursorPoint[]>([]);
-  const animationEffect = useRef<AnimationEffect | null>(null);
+  const [cursorStates, setCursorStates] = useState<CursorPoint[]>([]);
+  const animationEffects = useRef<AnimationEffect[]>([]);
   const { processLandmark } = useKeyPointClassifier();
   const animationFrameRef = useRef<number>();
   const renderLoopRef = useRef<number>();
   const isProcessing = useRef(false);
   const stream = useRef<MediaStream | null>(null);
-  const lastGestureState = useRef<string>('open');
+  const lastGestureStates = useRef<string[]>(['open', 'open']);
 
   useEffect(() => {
     if (!videoElement.current) return;
@@ -144,38 +148,40 @@ function useCursorPoints({ videoElement, canvasEl }: ICursorPointsLogic) {
     ctx.strokeStyle = '#FFFFFF';
     ctx.lineWidth = 2;
     ctx.stroke();
+
+    if (point.handedness) {
+      ctx.save(); // Save current context state
+      ctx.translate(point.x, point.y - baseRadius - 5);
+      ctx.scale(-1, 1); // Flip text horizontally
+      ctx.font = '12px Arial';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.textAlign = 'center';
+      ctx.fillText(point.handedness, 0, 0);
+      ctx.restore(); // Restore context state
+    }
   };
 
-  const drawAnimationEffect = (ctx: CanvasRenderingContext2D, point: CursorPoint) => {
-    if (!animationEffect.current) return;
-
+  const drawAnimationEffect = (ctx: CanvasRenderingContext2D, effect: AnimationEffect) => {
     const currentTime = Date.now();
     const animationDuration = 400; // 400ms duration
-    const timeSinceStart = currentTime - animationEffect.current.startTime;
+    const timeSinceStart = currentTime - effect.startTime;
     
-    if (timeSinceStart >= animationDuration) {
-      animationEffect.current = null;
-      return;
-    }
+    if (timeSinceStart >= animationDuration) return false;
 
     const progress = timeSinceStart / animationDuration;
     const maxRadius = 100;
     const currentRadius = maxRadius * progress;
     
-    // Start with 1.5x opacity (0.45) and fade out
     const baseAlpha = 0.3 * 1.5; // Base alpha increased by 50%
     const alpha = baseAlpha * Math.pow(1 - progress, 1.5); // Faster fade out with exponential curve
     
-    // Update effect position to follow cursor
-    animationEffect.current.x = point.x;
-    animationEffect.current.y = point.y;
-    
-    // Draw expanding blur effect
     ctx.filter = `blur(${8 + progress * 12}px)`;
     ctx.beginPath();
-    ctx.arc(animationEffect.current.x, animationEffect.current.y, currentRadius, 0, 2 * Math.PI);
+    ctx.arc(effect.x, effect.y, currentRadius, 0, 2 * Math.PI);
     ctx.fillStyle = `rgba(138, 43, 226, ${alpha})`; // Always purple
     ctx.fill();
+    
+    return true;
   };
 
   const startVideoProcessing = () => {
@@ -192,30 +198,48 @@ function useCursorPoints({ videoElement, canvasEl }: ICursorPointsLogic) {
             startTimeMs
           );
           
-          if (results.landmarks && results.landmarks.length > 0) {
-            const handLandmarks = results.landmarks[0];
-            const handState = await processLandmark(handLandmarks, videoElement.current);
+          if (results.landmarks) {
+            const newCursorPoints: CursorPoint[] = [];
             
-            const x = handLandmarks[INDEX_TIP].x * canvasEl.current.width;
-            const y = handLandmarks[INDEX_TIP].y * canvasEl.current.height;
-            
-            if (handState === 'closed' && lastGestureState.current !== 'closed') {
-              console.log('Starting closed animation');
-              animationEffect.current = {
+            for (let i = 0; i < Math.min(results.landmarks.length, 2); i++) {
+              const handLandmarks = results.landmarks[i];
+              const handState = await processLandmark(handLandmarks, videoElement.current);
+              // Flip handedness since video is mirrored
+              const rawHandedness = results.handedness[i][0].categoryName;
+              const handedness = rawHandedness === 'Left' ? 'Right' : 'Left';
+              
+              // Calculate average position between thumb and index finger tips
+              const x = ((handLandmarks[THUMB_TIP].x + handLandmarks[INDEX_TIP].x) / 2) * canvasEl.current.width;
+              const y = ((handLandmarks[THUMB_TIP].y + handLandmarks[INDEX_TIP].y) / 2) * canvasEl.current.height;
+              
+              if (handState === 'closed' && lastGestureStates.current[i] !== 'closed') {
+                console.log(`Hand ${i + 1} starting closed animation`);
+                animationEffects.current.push({
+                  x,
+                  y,
+                  startTime: Date.now(),
+                  handIndex: i
+                });
+              }
+              
+              lastGestureStates.current[i] = handState;
+              
+              newCursorPoints.push({
                 x,
                 y,
-                startTime: Date.now()
-              };
+                gestureState: handState,
+                lastUpdated: Date.now(),
+                handedness
+              });
             }
             
-            lastGestureState.current = handState;
+            for (let i = results.landmarks.length; i < 2; i++) {
+              lastGestureStates.current[i] = 'open';
+            }
             
-            cursorPoints.current = [{
-              x,
-              y,
-              gestureState: handState,
-              lastUpdated: Date.now()
-            }];
+            cursorPoints.current = newCursorPoints;
+            setCursorStates(newCursorPoints);
+            onUpdate?.(newCursorPoints, newCursorPoints);
           }
         } catch (error) {
           console.error("Error processing video frame:", error);
@@ -230,20 +254,25 @@ function useCursorPoints({ videoElement, canvasEl }: ICursorPointsLogic) {
     processFrame();
     
     const renderLoop = () => {
-      if (canvasEl.current && cursorPoints.current.length > 0) {
+      if (canvasEl.current) {
         const ctx = canvasEl.current.getContext('2d');
         if (!ctx) return;
 
         ctx.clearRect(0, 0, canvasEl.current.width, canvasEl.current.height);
         
-        const currentPoint = cursorPoints.current[0];
-        if (Date.now() - (currentPoint.lastUpdated || 0) <= 100) {
-          if (animationEffect.current) {
-            drawAnimationEffect(ctx, currentPoint);
+        animationEffects.current = animationEffects.current.filter(effect => {
+          if (cursorPoints.current[effect.handIndex]) {
+            effect.x = cursorPoints.current[effect.handIndex].x;
+            effect.y = cursorPoints.current[effect.handIndex].y;
           }
-          
-          drawCursor(ctx, currentPoint);
-        }
+          return drawAnimationEffect(ctx, effect);
+        });
+        
+        cursorPoints.current.forEach(point => {
+          if (Date.now() - (point.lastUpdated || 0) <= 100) {
+            drawCursor(ctx, point);
+          }
+        });
       }
       
       renderLoopRef.current = requestAnimationFrame(renderLoop);
@@ -253,7 +282,8 @@ function useCursorPoints({ videoElement, canvasEl }: ICursorPointsLogic) {
   };
 
   return {
-    cursorPoints: cursorPoints.current
+    cursorPoints: cursorPoints.current,
+    cursorStates: cursorStates.current
   };
 }
 

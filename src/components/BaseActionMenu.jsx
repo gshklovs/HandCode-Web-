@@ -100,6 +100,8 @@ const BaseActionMenu = ({ suggestions = [], position, onSelect, onClickOutside, 
               e.stopPropagation();
               onSuggestionClick(suggestion);
             }}
+            role="menuitem"
+            onFocus={() => setHoveredIndex(index)}
             onMouseEnter={() => setHoveredIndex(index)}
             onMouseLeave={() => setHoveredIndex(null)}
             className={`absolute w-[240px] h-[72px] px-3 py-2 rounded border border-gray-700 cursor-pointer overflow-hidden text-sm transition-all duration-200 text-left

@@ -5,6 +5,7 @@ import { createDiffSummary } from '../utils/diffUtil';
 import SquareLayoutActionMenu from './SquareLayoutActionMenu';
 import LoadingDots from './LoadingDots';
 import TopBar from './TopBar';
+import { editModeState } from '../globals';
 
 const initialCode = `class Counter {
   constructor(initialValue = 0) {
@@ -531,10 +532,11 @@ function CodeEditor({ onError }) {
           }}
         />
       </div>
+      
       {loading && loadingPosition && (
         <LoadingDots position={loadingPosition} />
       )}
-      {!loading && menuPosition && suggestions.length > 0 && (
+      {editModeState.get() && !loading && menuPosition && suggestions.length > 0 && (
         <SquareLayoutActionMenu
           suggestions={suggestions}
           position={menuPosition}
