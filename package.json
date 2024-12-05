@@ -19,8 +19,7 @@
     "lodash": "^4.17.21",
     "monaco-editor": "^0.52.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "robotjs": "^0.6.0"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",

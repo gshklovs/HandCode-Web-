@@ -1,7 +1,0 @@
-{
-  "version": 2,
-  "buildCommand": "apt-get update && apt-get install -y libx11-dev libxtst-dev libpng-dev && npm install && npm run build",
-  "outputDirectory": "dist",
-  "framework": "vite",
-  "installCommand": "apt-get update && apt-get install -y libx11-dev libxtst-dev libpng-dev && npm install"
-}
